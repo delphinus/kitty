@@ -1192,37 +1192,53 @@ do_render(
     ensure_render_space(canvas_width, cell_height, num_glyphs);
     CGRect br = CTFontGetBoundingRectsForGlyphs(ct_font, kCTFontOrientationHorizontal, buffers.glyphs, buffers.boxes, num_glyphs);
     const bool debug_rendering = false;
+    CGFloat x_offset = 0;
     if (allow_resize) {
         // Resize glyphs that would bleed into neighboring cells, by scaling the font size
-        float right = 0;
-        for (unsigned i = 0; i < num_glyphs; i++) right = MAX(right, buffers.boxes[i].origin.x + buffers.boxes[i].size.width);
+        float left = 0, right = 0;
+        for (unsigned i = 0; i < num_glyphs; i++) {
+            const CGRect *b = buffers.boxes + i;
+            if (!i || b->origin.x < left) left = b->origin.x;
+            right = MAX(right, b->origin.x + b->size.width);
+        }
         if (!bold && !italic && right > canvas_width + 1) {
-            if (debug_rendering) printf("resizing glyphs, right: %f canvas_width: %u\n", right, canvas_width);
-            CGFloat sz = CTFontGetSize(ct_font);
-            sz *= canvas_width / right;
-            CTFontRef new_font = CTFontCreateCopyWithAttributes(ct_font, sz, NULL, NULL);
-            bool ret = do_render(
-                new_font,
-                CTFontGetUnitsPerEm(new_font),
-                bold,
-                italic,
-                info,
-                hb_positions,
-                num_glyphs,
-                canvas,
-                cell_width,
-                cell_height,
-                num_cells,
-                baseline,
-                was_colored,
-                false,
-                fg,
-                ri);
-            CFRelease(new_font);
-            return ret;
+            // A single glyph whose ink is narrow enough to fit in the canvas
+            // overflows only because of its left side bearing. Move it into the
+            // canvas instead of shrinking it, so that it is rendered at the size
+            // the font intends. Symbol fonts that give every glyph the same wide
+            // advance, such as the non-mono Nerd Fonts, hit this a lot.
+            if (num_glyphs == 1 && left > 0 && right - left <= canvas_width) {
+                x_offset = (canvas_width - (right - left)) / 2 - left;
+                if (debug_rendering)
+                    printf("moving glyph instead of resizing, left: %f right: %f canvas_width: %u x_offset: %f\n", left, right, canvas_width, x_offset);
+            } else {
+                if (debug_rendering) printf("resizing glyphs, right: %f canvas_width: %u\n", right, canvas_width);
+                CGFloat sz = CTFontGetSize(ct_font);
+                sz *= canvas_width / right;
+                CTFontRef new_font = CTFontCreateCopyWithAttributes(ct_font, sz, NULL, NULL);
+                bool ret = do_render(
+                    new_font,
+                    CTFontGetUnitsPerEm(new_font),
+                    bold,
+                    italic,
+                    info,
+                    hb_positions,
+                    num_glyphs,
+                    canvas,
+                    cell_width,
+                    cell_height,
+                    num_cells,
+                    baseline,
+                    was_colored,
+                    false,
+                    fg,
+                    ri);
+                CFRelease(new_font);
+                return ret;
+            }
         }
     }
-    CGFloat x = 0, y = 0;
+    CGFloat x = x_offset, y = 0;
     CGFloat scale = CTFontGetSize(ct_font) / units_per_em;
     for (unsigned i = 0; i < num_glyphs; i++) {
         buffers.positions[i].x = x + hb_positions[i].x_offset * scale;
@@ -1249,10 +1265,10 @@ do_render(
         render_alpha_mask(buffers.render_buf, canvas, &src, &dest, canvas_width, canvas_width, 0xffffff);
     }
     ri->canvas_width = canvas_width;
-    ri->rendered_width = (unsigned)ceil(x);
+    ri->rendered_width = (unsigned)ceil(x - x_offset);
     ri->x = 0;
     // FiraCode ligatures result in negative origins
-    if (br.origin.x > 0) ri->x = (int)br.origin.x;
+    if (br.origin.x + x_offset > 0) ri->x = (int)(br.origin.x + x_offset);
     return true;
 }
 
