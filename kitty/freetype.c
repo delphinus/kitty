@@ -650,7 +650,13 @@ get_glyph_width(PyObject *s, glyph_index g) {
     // printf("glyph: %u bitmap.width: %d bitmap.rows: %d horiAdvance: %ld horiBearingX: %ld horiBearingY: %ld vertBearingX: %ld vertBearingY: %ld vertAdvance:
     // %ld width: %ld height: %ld\n", g, B.width, B.rows, M.horiAdvance, M.horiBearingX, M.horiBearingY, M.vertBearingX, M.vertBearingY, M.vertAdvance, M.width,
     // M.height);
-    return B.width ? (int)B.width : (int)(M.width / 64);
+    // Take the advance into account as well as the ink. Symbol fonts such as
+    // the non-mono Nerd Fonts give every glyph a two cell advance and centre
+    // the artwork in it, so a glyph whose ink is narrower than one cell is
+    // still meant to be drawn in two, and rendering it in one both shrinks it
+    // and moves it away from where the font puts it.
+    const long w = B.width ? (long)B.width : (M.width / 64);
+    return (int)MAX(w, M.horiAdvance / 64);
 #undef M
 #undef B
 }

@@ -553,7 +553,14 @@ get_glyph_width(PyObject *s, glyph_index g) {
     CGGlyph gg = g;
     CGRect bounds;
     CTFontGetBoundingRectsForGlyphs(self->ct_font, kCTFontOrientationHorizontal, &gg, &bounds, 1);
-    return (int)ceil(bounds.size.width);
+    // Take the advance into account as well as the ink. Symbol fonts such as
+    // the non-mono Nerd Fonts give every glyph a two cell advance and centre
+    // the artwork in it, so a glyph whose ink is narrower than one cell is
+    // still meant to be drawn in two, and rendering it in one both shrinks it
+    // and moves it away from where the font puts it.
+    CGSize advance;
+    CTFontGetAdvancesForGlyphs(self->ct_font, kCTFontOrientationHorizontal, &gg, &advance, 1);
+    return (int)ceil(MAX(bounds.size.width, advance.width));
 }
 
 static float
